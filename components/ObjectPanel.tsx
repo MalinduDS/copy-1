@@ -4,11 +4,9 @@
 */
 
 import React, { useState, useEffect } from 'react';
-// FIX: Import the base DetectedObject type from the service to extend it, and remove the circular dependency on App.tsx.
-import type { DetectedObject as ApiDetectedObject } from '../src/services/geminiService';
+import type { DetectedObject as ApiDetectedObject } from '../services/geminiService';
 import { BullseyeIcon } from './icons';
 
-// FIX: Define and export the UI-specific DetectedObject interface here to be the source of truth and break the circular dependency.
 export interface DetectedObject extends ApiDetectedObject {
   id: string;
 }
@@ -72,7 +70,7 @@ const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing
         <h3 className="text-lg font-semibold text-gray-300">Detected Objects</h3>
         <button 
           onClick={onDetect}
-          className="text-sm text-blue-400 hover:text-blue-300"
+          className="text-sm text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
           disabled={isEditing}
         >
           Re-scan
@@ -114,6 +112,7 @@ const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing
               placeholder={`e.g., 'make it bright red'`}
               className="flex-grow bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-4 text-base focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isEditing}
+              autoFocus
             />
             <button 
               type="submit"

@@ -121,6 +121,51 @@ Output: Return ONLY the final edited image. Do not return text.`;
 };
 
 /**
+ * Generates an edited image using generative AI based on a text prompt and a specific object's bounding box.
+ * @param originalImage The original image file.
+ * @param userPrompt The text prompt describing the desired edit.
+ * @param object The detected object with its bounding box.
+ * @returns A promise that resolves to the data URL of the edited image.
+ */
+export const generateObjectEdit = async (
+    originalImage: File,
+    userPrompt: string,
+    object: DetectedObject
+): Promise<string> => {
+    console.log(`Starting object edit for '${object.label}' at:`, object.box);
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const originalImagePart = await fileToPart(originalImage);
+    const prompt = `You are an expert photo editor AI. Your task is to perform a natural, localized edit on the provided image based on the user's request, constrained to a specific object.
+Object to Edit: The object labeled '${object.label}' located within the bounding box (x1: ${object.box.x1}, y1: ${object.box.y1}, x2: ${object.box.x2}, y2: ${object.box.y2}).
+User Request: "${userPrompt}"
+
+Editing Guidelines:
+- The edit must be realistic and blend seamlessly with the surrounding area.
+- The edit MUST be contained entirely within the provided bounding box.
+- The rest of the image (outside the bounding box) must remain identical to the original.
+
+Safety & Ethics Policy:
+- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
+- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
+
+Output: Return ONLY the final edited image. Do not return text.`;
+    const textPart = { text: prompt };
+
+    console.log('Sending image and object edit prompt to the model...');
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts: [originalImagePart, textPart] },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+    });
+    console.log('Received response from model for object edit.', response);
+
+    return handleApiResponse(response, 'object edit');
+};
+
+/**
  * Generates an image with a filter applied using generative AI.
  * @param originalImage The original image file.
  * @param filterPrompt The text prompt describing the desired filter.
@@ -310,7 +355,7 @@ export const detectObjects = async (
     }
 };
 
-type Resolution = 'HD' | 'FHD' | '4K' | '8K';
+export type Resolution = 'HD' | 'FHD' | '4K' | '8K';
 
 const resolutionConfig = {
     'HD': { name: 'HD resolution (1280 x 720 pixels)', pixels: 1280 },
