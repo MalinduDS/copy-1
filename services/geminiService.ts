@@ -355,19 +355,18 @@ export const detectObjects = async (
     }
 };
 
-type Resolution = 'HD' | 'FHD' | '4K' | '8K';
+export type Resolution = 'HD' | 'FHD' | '4K';
 
 const resolutionConfig = {
     'HD': { name: 'HD resolution (1280 x 720 pixels)', pixels: 1280 },
     'FHD': { name: 'Full HD resolution (1920 x 1080 pixels)', pixels: 1920 },
     '4K': { name: '4K UHD resolution (3840 x 2160 pixels)', pixels: 3840 },
-    '8K': { name: '8K UHD resolution (7680 x 4320 pixels)', pixels: 7680 },
 };
 
 /**
  * Upscales an image to a specified resolution using generative AI.
  * @param originalImage The original image file.
- * @param resolution The target resolution ('HD', 'FHD', '4K', '8K').
+ * @param resolution The target resolution ('HD', 'FHD', '4K').
  * @returns A promise that resolves to the data URL of the upscaled image.
  */
 export const upscaleImage = async (

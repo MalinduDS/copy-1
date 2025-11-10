@@ -226,19 +226,21 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory]);
 
-  const handleApplyBackground = useCallback(async (backgroundFile: File) => {
+  const handleApplyBackgroundEffect = useCallback(async (backgroundPrompt: string) => {
     if (!currentImage) {
-      setError('No image loaded to apply a background to.');
+      setError('No image loaded to apply a background effect to.');
       return;
     }
     
     setIsLoading(true);
-    setLoadingMessage('Compositing images...');
+    setLoadingMessage('Applying background effect...');
     setError(null);
     
     try {
-        const compositedImageUrl = await compositeWithBackground(currentImage, backgroundFile);
-        const newImageFile = dataURLtoFile(compositedImageUrl, `composited-${Date.now()}.png`);
+        // We use generateAdjustedImage and provide a very specific prompt
+        const finalPrompt = `Change the background to ${backgroundPrompt}, ensuring the main subject(s) remain untouched and in sharp focus. The new background should blend realistically with the subject's lighting and perspective.`;
+        const compositedImageUrl = await generateAdjustedImage(currentImage, finalPrompt);
+        const newImageFile = dataURLtoFile(compositedImageUrl, `background-${Date.now()}.png`);
         addImageToHistory(newImageFile);
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
@@ -636,7 +638,7 @@ const App: React.FC = () => {
             {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
             {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} />}
             {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
-            {activeTab === 'background' && <BackgroundPanel onApplyBackground={handleApplyBackground} isLoading={isLoading} />}
+            {activeTab === 'background' && <BackgroundPanel onApplyBackgroundEffect={handleApplyBackgroundEffect} isLoading={isLoading} />}
         </div>
         
         <div className="flex flex-wrap items-center justify-center gap-3">

@@ -6,13 +6,25 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
-import { generateEditedImage, generateFilteredImage, generateAdjustedImage } from './services/geminiService';
+import { 
+    generateEditedImage, 
+    generateFilteredImage, 
+    generateAdjustedImage, 
+    upscaleImage, 
+    compositeWithBackground, 
+    detectObjects,
+    generateObjectEdit,
+    type Resolution 
+} from './services/geminiService';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
-import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
+import DownloadPanel from './components/DownloadPanel';
+import BackgroundPanel from './components/BackgroundPanel';
+import ObjectPanel, { type DetectedObject as UiDetectedObject } from './components/ObjectPanel';
+import { UndoIcon, RedoIcon, EyeIcon, ChevronDownIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 
 // Helper to convert a data URL string to a File object
@@ -32,13 +44,14 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     return new File([u8arr], filename, {type:mime});
 }
 
-type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
+type Tab = 'retouch' | 'objects' | 'crop' | 'adjust' | 'filters' | 'background';
 
 const App: React.FC = () => {
   const [history, setHistory] = useState<File[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [prompt, setPrompt] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState('AI is working its magic...');
   const [error, setError] = useState<string | null>(null);
   const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
@@ -49,6 +62,15 @@ const App: React.FC = () => {
   const [aspect, setAspect] = useState<number | undefined>();
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const imgRef = useRef<HTMLImageElement>(null);
+
+  // Object Detection State
+  const [detectedObjects, setDetectedObjects] = useState<UiDetectedObject[]>([]);
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
+
+  // Download Panel State
+  const [isDownloadPanelOpen, setIsDownloadPanelOpen] = useState<boolean>(false);
+  const downloadButtonRef = useRef<HTMLDivElement>(null);
 
   const currentImage = history[historyIndex] ?? null;
   const originalImage = history[0] ?? null;
@@ -79,29 +101,49 @@ const App: React.FC = () => {
   }, [originalImage]);
 
 
+  // Effect to close dropdown when clicking outside
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (downloadButtonRef.current && !downloadButtonRef.current.contains(event.target as Node)) {
+              setIsDownloadPanelOpen(false);
+          }
+      };
+
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+          document.removeEventListener('mousedown', handleClickOutside);
+      };
+  }, []);
+
+
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
+
+  const resetInteractionState = useCallback(() => {
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    setDetectedObjects([]);
+    setSelectedObjectId(null);
+    setHoveredObjectId(null);
+    setCrop(undefined);
+    setCompletedCrop(undefined);
+  }, []);
 
   const addImageToHistory = useCallback((newImageFile: File) => {
     const newHistory = history.slice(0, historyIndex + 1);
     newHistory.push(newImageFile);
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
-    // Reset transient states after an action
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-  }, [history, historyIndex]);
+    resetInteractionState();
+  }, [history, historyIndex, resetInteractionState]);
 
   const handleImageUpload = useCallback((file: File) => {
     setError(null);
     setHistory([file]);
     setHistoryIndex(0);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
     setActiveTab('retouch');
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-  }, []);
+    resetInteractionState();
+  }, [resetInteractionState]);
 
   const handleGenerate = useCallback(async () => {
     if (!currentImage) {
@@ -120,6 +162,7 @@ const App: React.FC = () => {
     }
 
     setIsLoading(true);
+    setLoadingMessage('AI is working its magic...');
     setError(null);
     
     try {
@@ -144,6 +187,7 @@ const App: React.FC = () => {
     }
     
     setIsLoading(true);
+    setLoadingMessage('Applying creative filter...');
     setError(null);
     
     try {
@@ -166,6 +210,7 @@ const App: React.FC = () => {
     }
     
     setIsLoading(true);
+    setLoadingMessage('Making professional adjustments...');
     setError(null);
     
     try {
@@ -175,6 +220,29 @@ const App: React.FC = () => {
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
         setError(`Failed to apply the adjustment. ${errorMessage}`);
+        console.error(err);
+    } finally {
+        setIsLoading(false);
+    }
+  }, [currentImage, addImageToHistory]);
+
+  const handleApplyBackground = useCallback(async (backgroundFile: File) => {
+    if (!currentImage) {
+      setError('No image loaded to apply a background to.');
+      return;
+    }
+    
+    setIsLoading(true);
+    setLoadingMessage('Compositing images...');
+    setError(null);
+    
+    try {
+        const compositedImageUrl = await compositeWithBackground(currentImage, backgroundFile);
+        const newImageFile = dataURLtoFile(compositedImageUrl, `composited-${Date.now()}.png`);
+        addImageToHistory(newImageFile);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to apply the background. ${errorMessage}`);
         console.error(err);
     } finally {
         setIsLoading(false);
@@ -224,43 +292,94 @@ const App: React.FC = () => {
     addImageToHistory(newImageFile);
 
   }, [completedCrop, addImageToHistory]);
+  
+  const handleDetectObjects = useCallback(async () => {
+    if (!currentImage) {
+      setError('No image loaded to detect objects in.');
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Detecting objects...');
+    setError(null);
+    setDetectedObjects([]);
+    setSelectedObjectId(null);
+    setHoveredObjectId(null);
+
+    try {
+        const objects = await detectObjects(currentImage);
+        const objectsWithId = objects.map((obj, i) => ({ ...obj, id: `${Date.now()}-${i}` }));
+        setDetectedObjects(objectsWithId);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to detect objects. ${errorMessage}`);
+        console.error(err);
+    } finally {
+        setIsLoading(false);
+    }
+  }, [currentImage]);
+
+  const handleGenerateObjectEdit = useCallback(async (prompt: string, objectId: string) => {
+    if (!currentImage) {
+      setError('No image loaded to edit.');
+      return;
+    }
+    const object = detectedObjects.find(o => o.id === objectId);
+    if (!object) {
+      setError('Could not find the selected object to edit.');
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadingMessage('Editing selected object...');
+    setError(null);
+    
+    try {
+        const editedImageUrl = await generateObjectEdit(currentImage, prompt, object);
+        const newImageFile = dataURLtoFile(editedImageUrl, `object-edit-${Date.now()}.png`);
+        addImageToHistory(newImageFile);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to edit the object. ${errorMessage}`);
+        console.error(err);
+    } finally {
+        setIsLoading(false);
+    }
+  }, [currentImage, detectedObjects, addImageToHistory]);
 
   const handleUndo = useCallback(() => {
     if (canUndo) {
       setHistoryIndex(historyIndex - 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
+      resetInteractionState();
     }
-  }, [canUndo, historyIndex]);
+  }, [canUndo, historyIndex, resetInteractionState]);
   
   const handleRedo = useCallback(() => {
     if (canRedo) {
       setHistoryIndex(historyIndex + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
+      resetInteractionState();
     }
-  }, [canRedo, historyIndex]);
+  }, [canRedo, historyIndex, resetInteractionState]);
 
   const handleReset = useCallback(() => {
     if (history.length > 0) {
       setHistoryIndex(0);
       setError(null);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
+      resetInteractionState();
     }
-  }, [history]);
+  }, [history, resetInteractionState]);
 
   const handleUploadNew = useCallback(() => {
       setHistory([]);
       setHistoryIndex(-1);
       setError(null);
       setPrompt('');
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-  }, []);
+      resetInteractionState();
+  }, [resetInteractionState]);
 
   const handleDownload = useCallback(() => {
       if (currentImage) {
+          setIsDownloadPanelOpen(false);
           const link = document.createElement('a');
           link.href = URL.createObjectURL(currentImage);
           link.download = `edited-${currentImage.name}`;
@@ -271,6 +390,34 @@ const App: React.FC = () => {
       }
   }, [currentImage]);
   
+  const handleUpscale = useCallback(async (resolution: Resolution) => {
+    if (!currentImage) {
+        setError('No image available to upscale.');
+        return;
+    }
+    setIsDownloadPanelOpen(false);
+    setIsLoading(true);
+    setLoadingMessage(`Upscaling image to ${resolution}...`);
+    setError(null);
+
+    try {
+        const upscaledImageUrl = await upscaleImage(currentImage, resolution);
+        // Trigger download for the upscaled image
+        const link = document.createElement('a');
+        link.href = upscaledImageUrl;
+        link.download = `upscaled-${resolution}-${currentImage.name}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(`Failed to upscale the image. ${errorMessage}`);
+        console.error(err);
+    } finally {
+        setIsLoading(false);
+    }
+  }, [currentImage]);
+
   const handleFileSelect = (files: FileList | null) => {
     if (files && files[0]) {
       handleImageUpload(files[0]);
@@ -278,24 +425,28 @@ const App: React.FC = () => {
   };
 
   const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (activeTab !== 'retouch') return;
-    
-    const img = e.currentTarget;
-    const rect = img.getBoundingClientRect();
+    if (activeTab === 'retouch') {
+        const img = e.currentTarget;
+        const rect = img.getBoundingClientRect();
 
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
-    
-    setDisplayHotspot({ x: offsetX, y: offsetY });
+        const offsetX = e.clientX - rect.left;
+        const offsetY = e.clientY - rect.top;
+        
+        setDisplayHotspot({ x: offsetX, y: offsetY });
 
-    const { naturalWidth, naturalHeight, clientWidth, clientHeight } = img;
-    const scaleX = naturalWidth / clientWidth;
-    const scaleY = naturalHeight / clientHeight;
+        const { naturalWidth, naturalHeight, clientWidth, clientHeight } = img;
+        const scaleX = naturalWidth / clientWidth;
+        const scaleY = naturalHeight / clientHeight;
 
-    const originalX = Math.round(offsetX * scaleX);
-    const originalY = Math.round(offsetY * scaleY);
+        const originalX = Math.round(offsetX * scaleX);
+        const originalY = Math.round(offsetY * scaleY);
 
-    setEditHotspot({ x: originalX, y: originalY });
+        setEditHotspot({ x: originalX, y: originalY });
+    } else if (activeTab === 'objects') {
+        // Clicking on the image itself (not a box) will deselect any selected object.
+        // The box's onClick has stopPropagation, so this only fires on the image.
+        setSelectedObjectId(null);
+    }
 };
 
   const renderContent = () => {
@@ -319,7 +470,7 @@ const App: React.FC = () => {
     }
 
     const imageDisplay = (
-      <div className="relative">
+      <div className="relative" onMouseLeave={() => activeTab === 'objects' && setHoveredObjectId(null)}>
         {/* Base image is the original, always at the bottom */}
         {originalImageUrl && (
             <img
@@ -338,6 +489,51 @@ const App: React.FC = () => {
             onClick={handleImageClick}
             className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
         />
+        {/* Bounding Boxes Overlay */}
+        {activeTab === 'objects' && detectedObjects.length > 0 && (
+            <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+              {detectedObjects.map(obj => {
+                if (!imgRef.current) return null;
+                const { naturalWidth, naturalHeight, clientWidth, clientHeight } = imgRef.current;
+                if (!naturalWidth || !naturalHeight) return null;
+
+                const scaleX = clientWidth / naturalWidth;
+                const scaleY = clientHeight / naturalHeight;
+
+                const boxStyle = {
+                    left: `${obj.box.x1 * scaleX}px`,
+                    top: `${obj.box.y1 * scaleY}px`,
+                    width: `${(obj.box.x2 - obj.box.x1) * scaleX}px`,
+                    height: `${(obj.box.y2 - obj.box.y1) * scaleY}px`,
+                };
+                
+                const isSelected = obj.id === selectedObjectId;
+                const isHovered = obj.id === hoveredObjectId;
+
+                return (
+                    <div 
+                        key={obj.id} 
+                        style={boxStyle}
+                        className={`absolute pointer-events-auto cursor-pointer transition-all duration-200 rounded-md
+                          ${isSelected ? 'border-4 border-blue-400 bg-blue-400/30 ring-2 ring-blue-300' :
+                          isHovered ? 'border-2 border-dashed border-white bg-white/20' :
+                          'border-2 border-white/50 bg-transparent'}`
+                        }
+                        onClick={(e) => { e.stopPropagation(); setSelectedObjectId(obj.id); }}
+                        onMouseEnter={() => setHoveredObjectId(obj.id)}
+                    >
+                      <span 
+                        className={`absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold text-white bg-black/60 px-2 py-1 rounded-md transition-opacity duration-200 whitespace-nowrap capitalize
+                          ${isHovered || isSelected ? 'opacity-100' : 'opacity-0'}`
+                        }
+                      >
+                        {obj.label}
+                      </span>
+                    </div>
+                );
+              })}
+            </div>
+          )}
       </div>
     );
     
@@ -359,7 +555,7 @@ const App: React.FC = () => {
             {isLoading && (
                 <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
                     <Spinner />
-                    <p className="text-gray-300">AI is working its magic...</p>
+                    <p className="text-gray-300">{loadingMessage}</p>
                 </div>
             )}
             
@@ -386,7 +582,7 @@ const App: React.FC = () => {
         </div>
         
         <div className="w-full bg-gray-900/20 border border-white/10 rounded-lg p-2 flex items-center justify-center gap-2 backdrop-blur-md">
-            {(['retouch', 'crop', 'adjust', 'filters'] as Tab[]).map(tab => (
+            {(['retouch', 'objects', 'crop', 'adjust', 'filters', 'background'] as Tab[]).map(tab => (
                  <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -426,15 +622,27 @@ const App: React.FC = () => {
                     </form>
                 </div>
             )}
+            {activeTab === 'objects' && <ObjectPanel 
+                objects={detectedObjects}
+                isLoading={isLoading && loadingMessage.startsWith('Detecting')}
+                isEditing={isLoading && !loadingMessage.startsWith('Detecting')}
+                onDetect={handleDetectObjects}
+                selectedObjectId={selectedObjectId}
+                hoveredObjectId={hoveredObjectId}
+                onSelectObject={setSelectedObjectId}
+                onHoverObject={setHoveredObjectId}
+                onGenerateEdit={handleGenerateObjectEdit}
+            />}
             {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
             {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} />}
             {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
+            {activeTab === 'background' && <BackgroundPanel onApplyBackground={handleApplyBackground} isLoading={isLoading} />}
         </div>
         
         <div className="flex flex-wrap items-center justify-center gap-3">
             <button 
                 onClick={handleUndo}
-                disabled={!canUndo}
+                disabled={!canUndo || isLoading}
                 className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
                 aria-label="Undo last action"
             >
@@ -443,7 +651,7 @@ const App: React.FC = () => {
             </button>
             <button 
                 onClick={handleRedo}
-                disabled={!canRedo}
+                disabled={!canRedo || isLoading}
                 className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
                 aria-label="Redo last action"
             >
@@ -460,7 +668,8 @@ const App: React.FC = () => {
                   onMouseLeave={() => setIsComparing(false)}
                   onTouchStart={() => setIsComparing(true)}
                   onTouchEnd={() => setIsComparing(false)}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
+                  disabled={isLoading}
+                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Press and hold to see original image"
               >
                   <EyeIcon className="w-5 h-5 mr-2" />
@@ -470,24 +679,32 @@ const App: React.FC = () => {
 
             <button 
                 onClick={handleReset}
-                disabled={!canUndo}
+                disabled={!canUndo || isLoading}
                 className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
               >
                 Reset
             </button>
             <button 
                 onClick={handleUploadNew}
-                className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
+                disabled={isLoading}
+                className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 Upload New
             </button>
 
-            <button 
-                onClick={handleDownload}
-                className="flex-grow sm:flex-grow-0 ml-auto bg-gradient-to-br from-green-600 to-green-500 text-white font-bold py-3 px-5 rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base"
-            >
-                Download Image
-            </button>
+            <div ref={downloadButtonRef} className="relative flex-grow sm:flex-grow-0 ml-auto">
+                <button 
+                    onClick={() => setIsDownloadPanelOpen(prev => !prev)}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center bg-gradient-to-br from-green-600 to-green-500 text-white font-bold py-3 px-5 rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-green-800 disabled:to-green-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                >
+                    Download
+                    <ChevronDownIcon className={`w-5 h-5 ml-2 transition-transform ${isDownloadPanelOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isDownloadPanelOpen && (
+                    <DownloadPanel onDownloadCurrent={handleDownload} onUpscale={handleUpscale} />
+                )}
+            </div>
         </div>
       </div>
     );
