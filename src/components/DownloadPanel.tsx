@@ -15,6 +15,7 @@ const resolutions: { key: Resolution; label: string; description: string; }[] = 
   { key: 'HD', label: 'HD', description: '1280px' },
   { key: 'FHD', label: 'Full HD', description: '1920px' },
   { key: '4K', label: '4K UHD', description: '3840px' },
+  { key: '8K', label: '8K UHD', description: '7680px' },
 ];
 
 const DownloadPanel: React.FC<DownloadPanelProps> = ({ onDownloadCurrent, onUpscale }) => {
