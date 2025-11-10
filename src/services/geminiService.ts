@@ -367,7 +367,7 @@ const resolutionConfig = {
 /**
  * Upscales an image to a specified resolution using generative AI.
  * @param originalImage The original image file.
- * @param resolution The target resolution ('HD', 'FHD', '4K', '8K').
+ * @param resolution The target resolution ('HD', 'FHD', '4K').
  * @returns A promise that resolves to the data URL of the upscaled image.
  */
 export const upscaleImage = async (
