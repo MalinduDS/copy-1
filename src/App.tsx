@@ -624,12 +624,12 @@ const App: React.FC = () => {
             )}
         </div>
         
-        <div className="w-full bg-gray-900/20 border border-white/10 rounded-lg p-2 flex items-center justify-center gap-2 backdrop-blur-md">
+        <div className="w-full bg-gray-900/20 border border-white/10 rounded-lg p-2 grid grid-cols-7 gap-1 backdrop-blur-md">
             {(['retouch', 'objects', 'crop', 'adjust', 'styles', 'filters', 'background'] as Tab[]).map(tab => (
                  <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className={`w-full capitalize font-semibold py-3 px-5 rounded-md transition-all duration-200 text-base ${
+                    className={`w-full capitalize font-semibold py-3 px-2 rounded-md transition-all duration-200 text-base ${
                         activeTab === tab 
                         ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40' 
                         : 'text-gray-300 hover:text-white hover:bg-white/10'
@@ -684,7 +684,7 @@ const App: React.FC = () => {
         </div>
         
         <div className="w-full flex flex-col items-center gap-3">
-            <div className="flex flex-wrap items-center justify-center gap-3">
+            <div className="w-full flex flex-wrap items-center justify-center gap-3">
                 <button 
                     onClick={handleUndo}
                     disabled={!canUndo || isLoading}
