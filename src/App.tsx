@@ -24,7 +24,6 @@ import CropPanel from './components/CropPanel';
 import DownloadPanel from './components/DownloadPanel';
 import BackgroundPanel from './components/BackgroundPanel';
 import ObjectPanel, { type DetectedObject as UiDetectedObject } from './components/ObjectPanel';
-import StylesPanel from './components/StylesPanel';
 import { UndoIcon, RedoIcon, EyeIcon, ChevronDownIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 
@@ -45,7 +44,7 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     return new File([u8arr], filename, {type:mime});
 }
 
-type Tab = 'retouch' | 'objects' | 'crop' | 'adjust' | 'styles' | 'filters' | 'background';
+type Tab = 'retouch' | 'objects' | 'crop' | 'adjust' | 'filters' | 'background';
 
 const App: React.FC = () => {
   const [history, setHistory] = useState<File[]>([]);
@@ -61,8 +60,7 @@ const App: React.FC = () => {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [aspect, setAspect] = useState<number | undefined>();
-  const [isComparisonActive, setIsComparisonActive] = useState(false);
-  const [comparisonValue, setComparisonValue] = useState(50);
+  const [isComparing, setIsComparing] = useState<boolean>(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
   // Object Detection State
@@ -129,7 +127,6 @@ const App: React.FC = () => {
     setHoveredObjectId(null);
     setCrop(undefined);
     setCompletedCrop(undefined);
-    setIsComparisonActive(false);
   }, []);
 
   const addImageToHistory = useCallback((newImageFile: File) => {
@@ -229,29 +226,6 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory]);
 
-  const handleApplyStyle = useCallback(async (stylePrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply a style to.');
-      return;
-    }
-    
-    setIsLoading(true);
-    setLoadingMessage('Applying new style...');
-    setError(null);
-    
-    try {
-        const styledImageUrl = await generateAdjustedImage(currentImage, stylePrompt);
-        const newImageFile = dataURLtoFile(styledImageUrl, `styled-${Date.now()}.png`);
-        addImageToHistory(newImageFile);
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to apply the style. ${errorMessage}`);
-        console.error(err);
-    } finally {
-        setIsLoading(false);
-    }
-  }, [currentImage, addImageToHistory]);
-  
   const handleApplyBackground = useCallback(async (backgroundFile: File) => {
     if (!currentImage) {
       setError('No image loaded to apply a background to.');
@@ -506,32 +480,15 @@ const App: React.FC = () => {
                 className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
             />
         )}
-        {/* The current image is an overlay that gets clipped to reveal the original */}
+        {/* The current image is an overlay that fades in/out for comparison */}
         <img
             ref={imgRef}
             key={currentImageUrl}
             src={currentImageUrl}
             alt="Current"
             onClick={handleImageClick}
-            className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
-            style={{
-              clipPath: isComparisonActive ? `inset(0 ${100 - comparisonValue}% 0 0)` : 'none'
-            }}
+            className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
         />
-        {/* The comparison slider divider */}
-        {isComparisonActive && (
-          <div
-            className="absolute top-0 bottom-0 w-1 bg-white/70 pointer-events-none -translate-x-1/2 shadow-lg"
-            style={{ left: `${comparisonValue}%` }}
-          >
-            <div className="absolute top-1/2 -translate-y-1/2 -left-4 w-9 h-9 rounded-full bg-white/70 border-2 border-white flex items-center justify-center shadow-xl">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-gray-800 rotate-90">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
-              </svg>
-            </div>
-          </div>
-        )}
-
         {/* Bounding Boxes Overlay */}
         {activeTab === 'objects' && detectedObjects.length > 0 && (
             <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
@@ -559,7 +516,7 @@ const App: React.FC = () => {
                         style={boxStyle}
                         className={`absolute pointer-events-auto cursor-pointer transition-all duration-200 rounded-md
                           ${isSelected ? 'border-4 border-blue-400 bg-blue-400/30 ring-2 ring-blue-300' :
-                          isHovered ? 'border-2 border-dashed border-white bg-white/20' :
+                          isHovered ? 'border-2 border-cyan-400 bg-cyan-400/20 shadow-lg shadow-cyan-400/50 scale-[1.02]' :
                           'border-2 border-white/50 bg-transparent'}`
                         }
                         onClick={(e) => { e.stopPropagation(); setSelectedObjectId(obj.id); }}
@@ -624,12 +581,12 @@ const App: React.FC = () => {
             )}
         </div>
         
-        <div className="w-full bg-gray-900/20 border border-white/10 rounded-lg p-2 grid grid-cols-7 gap-1 backdrop-blur-md">
-            {(['retouch', 'objects', 'crop', 'adjust', 'styles', 'filters', 'background'] as Tab[]).map(tab => (
+        <div className="w-full bg-gray-900/20 border border-white/10 rounded-lg p-2 flex items-center justify-center gap-2 backdrop-blur-md">
+            {(['retouch', 'objects', 'crop', 'adjust', 'filters', 'background'] as Tab[]).map(tab => (
                  <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className={`w-full capitalize font-semibold py-3 px-2 rounded-md transition-all duration-200 text-base ${
+                    className={`w-full capitalize font-semibold py-3 px-5 rounded-md transition-all duration-200 text-base ${
                         activeTab === tab 
                         ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40' 
                         : 'text-gray-300 hover:text-white hover:bg-white/10'
@@ -678,93 +635,76 @@ const App: React.FC = () => {
             />}
             {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
             {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} />}
-            {activeTab === 'styles' && <StylesPanel onApplyStyle={handleApplyStyle} isLoading={isLoading} />}
             {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
             {activeTab === 'background' && <BackgroundPanel onApplyBackground={handleApplyBackground} isLoading={isLoading} />}
         </div>
         
-        <div className="w-full flex flex-col items-center gap-3">
-            <div className="w-full flex flex-wrap items-center justify-center gap-3">
-                <button 
-                    onClick={handleUndo}
-                    disabled={!canUndo || isLoading}
-                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                    aria-label="Undo last action"
-                >
-                    <UndoIcon className="w-5 h-5 mr-2" />
-                    Undo
-                </button>
-                <button 
-                    onClick={handleRedo}
-                    disabled={!canRedo || isLoading}
-                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                    aria-label="Redo last action"
-                >
-                    <RedoIcon className="w-5 h-5 mr-2" />
-                    Redo
-                </button>
-                
-                <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+            <button 
+                onClick={handleUndo}
+                disabled={!canUndo || isLoading}
+                className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
+                aria-label="Undo last action"
+            >
+                <UndoIcon className="w-5 h-5 mr-2" />
+                Undo
+            </button>
+            <button 
+                onClick={handleRedo}
+                disabled={!canRedo || isLoading}
+                className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
+                aria-label="Redo last action"
+            >
+                <RedoIcon className="w-5 h-5 mr-2" />
+                Redo
+            </button>
+            
+            <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
 
-                {canUndo && (
-                  <button
-                      onClick={() => setIsComparisonActive(prev => !prev)}
-                      disabled={isLoading}
-                      className={`flex items-center justify-center text-center border font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed ${
-                        isComparisonActive
-                        ? 'bg-blue-500/30 border-blue-400 text-white'
-                        : 'bg-white/10 border-white/20 text-gray-200 hover:bg-white/20 hover:border-white/30'
-                      }`}
-                      aria-label="Toggle before/after comparison slider"
-                  >
-                      <EyeIcon className="w-5 h-5 mr-2" />
-                      Compare
-                  </button>
-                )}
-
-                <button 
-                    onClick={handleReset}
-                    disabled={!canUndo || isLoading}
-                    className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
-                  >
-                    Reset
-                </button>
-                <button 
-                    onClick={handleUploadNew}
-                    disabled={isLoading}
-                    className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Upload New
-                </button>
-
-                <div ref={downloadButtonRef} className="relative flex-grow sm:flex-grow-0 ml-auto">
-                    <button 
-                        onClick={() => setIsDownloadPanelOpen(prev => !prev)}
-                        disabled={isLoading}
-                        className="w-full flex items-center justify-center bg-gradient-to-br from-green-600 to-green-500 text-white font-bold py-3 px-5 rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-green-800 disabled:to-green-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
-                    >
-                        Download
-                        <ChevronDownIcon className={`w-5 h-5 ml-2 transition-transform ${isDownloadPanelOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    {isDownloadPanelOpen && (
-                        <DownloadPanel onDownloadCurrent={handleDownload} onUpscale={handleUpscale} />
-                    )}
-                </div>
-            </div>
-
-            {isComparisonActive && (
-              <div className="w-full pt-4 animate-fade-in">
-                  <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={comparisonValue}
-                      onChange={(e) => setComparisonValue(Number(e.target.value))}
-                      className="comparison-slider w-full h-2 rounded-lg appearance-none cursor-pointer"
-                      aria-label="Comparison slider"
-                  />
-              </div>
+            {canUndo && (
+              <button 
+                  onMouseDown={() => setIsComparing(true)}
+                  onMouseUp={() => setIsComparing(false)}
+                  onMouseLeave={() => setIsComparing(false)}
+                  onTouchStart={() => setIsComparing(true)}
+                  onTouchEnd={() => setIsComparing(false)}
+                  disabled={isLoading}
+                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Press and hold to see original image"
+              >
+                  <EyeIcon className="w-5 h-5 mr-2" />
+                  Compare
+              </button>
             )}
+
+            <button 
+                onClick={handleReset}
+                disabled={!canUndo || isLoading}
+                className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
+              >
+                Reset
+            </button>
+            <button 
+                onClick={handleUploadNew}
+                disabled={isLoading}
+                className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                Upload New
+            </button>
+
+            <div ref={downloadButtonRef} className="relative flex-grow sm:flex-grow-0 ml-auto">
+                <button 
+                    onClick={() => setIsDownloadPanelOpen(prev => !prev)}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center bg-gradient-to-br from-green-600 to-green-500 text-white font-bold py-3 px-5 rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-green-800 disabled:to-green-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                >
+                    Download
+                    <ChevronDownIcon className={`w-5 h-5 ml-2 transition-transform ${isDownloadPanelOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isDownloadPanelOpen && (
+                    <DownloadPanel onDownloadCurrent={handleDownload} onUpscale={handleUpscale} />
+                )}
+            </div>
         </div>
       </div>
     );

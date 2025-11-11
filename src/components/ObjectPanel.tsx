@@ -88,7 +88,7 @@ const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing
                 onMouseLeave={() => onHoverObject(null)}
                 className={`w-full text-left p-3 rounded-md transition-all duration-200 border-2
                   ${selectedObjectId === obj.id ? 'bg-blue-500/20 border-blue-400' :
-                  hoveredObjectId === obj.id ? 'bg-white/10 border-white/20' :
+                  hoveredObjectId === obj.id ? 'bg-white/10 border-white/20 scale-[1.02]' :
                   'bg-white/5 border-transparent hover:bg-white/10'}`
                 }
               >
