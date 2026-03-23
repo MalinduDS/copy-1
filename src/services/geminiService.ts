@@ -34,6 +34,7 @@ export interface BoundingBox {
 export interface DetectedObject {
     label: string;
     box: BoundingBox;
+    confidence: number;
 }
 
 const handleApiResponse = (
@@ -284,19 +285,42 @@ Output: Return ONLY the final composited image. Do not return text.`;
     return handleApiResponse(response, 'composition');
 };
 
+export type DetailLevel = 'low' | 'medium' | 'high';
+
 /**
  * Detects objects in an image and returns their labels and bounding boxes.
  * @param image The image file to analyze.
+ * @param detailLevel The level of detail for object detection.
  * @returns A promise that resolves to an array of detected objects.
  */
 export const detectObjects = async (
-    image: File
+    image: File,
+    detailLevel: DetailLevel = 'medium'
 ): Promise<DetectedObject[]> => {
-    console.log('Starting object detection...');
+    console.log(`Starting object detection with detail level: ${detailLevel}...`);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const imagePart = await fileToPart(image);
-    const prompt = `Analyze this image and identify the main objects within it. For each distinct object you find, provide a concise label and its bounding box coordinates. The coordinates should be in pixels, with (0,0) being the top-left corner. Return the output as a JSON array.`;
+    
+    let detailInstruction = '';
+    switch (detailLevel) {
+        case 'low':
+            detailInstruction = 'Focus only on the largest, most prominent objects or subjects. Ignore small background items.';
+            break;
+        case 'high':
+            detailInstruction = 'Be extremely thorough. Identify all objects, including smaller, less prominent ones, and even distinct parts of larger objects if they are significant (e.g., a "hat" on a "person"). Aim for maximum comprehensiveness.';
+            break;
+        case 'medium':
+        default:
+            detailInstruction = 'Identify all clearly visible, distinct objects in the image.';
+            break;
+    }
+
+    const prompt = `You are a highly accurate object detection AI. Your task is to analyze the provided image and identify objects based on the requested level of detail.
+${detailInstruction}
+
+For each object you find, provide a concise label, its precise pixel bounding box coordinates (top-left is 0,0), and a confidence score from 0.0 to 1.0 indicating how certain you are about the detection.
+Return the output as a JSON array. If no objects are found, return an empty array.`;
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -310,7 +334,7 @@ export const detectObjects = async (
                     properties: {
                         label: {
                             type: Type.STRING,
-                            description: 'A short, descriptive label for the detected object (e.g., "cat", "red car", "tree").',
+                            description: 'A short, descriptive, and accurate label for the detected object (e.g., "cat", "red car", "tree").',
                         },
                         box: {
                             type: Type.OBJECT,
@@ -322,8 +346,12 @@ export const detectObjects = async (
                             },
                             required: ['x1', 'y1', 'x2', 'y2'],
                         },
+                        confidence: {
+                            type: Type.NUMBER,
+                            description: 'A confidence score between 0.0 and 1.0 for the detection accuracy.'
+                        }
                     },
-                    required: ['label', 'box'],
+                    required: ['label', 'box', 'confidence'],
                 },
             },
         },
@@ -355,19 +383,18 @@ export const detectObjects = async (
     }
 };
 
-export type Resolution = 'HD' | 'FHD' | '4K' | '8K';
+export type Resolution = 'HD' | 'FHD' | '4K';
 
 const resolutionConfig = {
     'HD': { name: 'HD resolution (1280 x 720 pixels)', pixels: 1280 },
     'FHD': { name: 'Full HD resolution (1920 x 1080 pixels)', pixels: 1920 },
     '4K': { name: '4K UHD resolution (3840 x 2160 pixels)', pixels: 3840 },
-    '8K': { name: '8K UHD resolution (7680 x 4320 pixels)', pixels: 7680 },
 };
 
 /**
  * Upscales an image to a specified resolution using generative AI.
  * @param originalImage The original image file.
- * @param resolution The target resolution ('HD', 'FHD', '4K', '8K').
+ * @param resolution The target resolution ('HD', 'FHD', '4K').
  * @returns A promise that resolves to the data URL of the upscaled image.
  */
 export const upscaleImage = async (

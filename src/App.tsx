@@ -226,21 +226,19 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory]);
 
-  const handleApplyBackgroundEffect = useCallback(async (backgroundPrompt: string) => {
+  const handleApplyBackground = useCallback(async (backgroundFile: File) => {
     if (!currentImage) {
-      setError('No image loaded to apply a background effect to.');
+      setError('No image loaded to apply a background to.');
       return;
     }
     
     setIsLoading(true);
-    setLoadingMessage('Applying background effect...');
+    setLoadingMessage('Compositing images...');
     setError(null);
     
     try {
-        // We use generateAdjustedImage and provide a very specific prompt
-        const finalPrompt = `Change the background to ${backgroundPrompt}, ensuring the main subject(s) remain untouched and in sharp focus. The new background should blend realistically with the subject's lighting and perspective.`;
-        const compositedImageUrl = await generateAdjustedImage(currentImage, finalPrompt);
-        const newImageFile = dataURLtoFile(compositedImageUrl, `background-${Date.now()}.png`);
+        const compositedImageUrl = await compositeWithBackground(currentImage, backgroundFile);
+        const newImageFile = dataURLtoFile(compositedImageUrl, `composited-${Date.now()}.png`);
         addImageToHistory(newImageFile);
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
@@ -638,63 +636,88 @@ const App: React.FC = () => {
             {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
             {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} />}
             {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
-            {activeTab === 'background' && <BackgroundPanel onApplyBackgroundEffect={handleApplyBackgroundEffect} isLoading={isLoading} />}
+            {activeTab === 'background' && <BackgroundPanel onApplyBackground={handleApplyBackground} isLoading={isLoading} />}
         </div>
         
         <div className="flex flex-wrap items-center justify-center gap-3">
-            <button 
-                onClick={handleUndo}
-                disabled={!canUndo || isLoading}
-                className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                aria-label="Undo last action"
-            >
-                <UndoIcon className="w-5 h-5 mr-2" />
-                Undo
-            </button>
-            <button 
-                onClick={handleRedo}
-                disabled={!canRedo || isLoading}
-                className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                aria-label="Redo last action"
-            >
-                <RedoIcon className="w-5 h-5 mr-2" />
-                Redo
-            </button>
+            <div className="relative group">
+                <button 
+                    onClick={handleUndo}
+                    disabled={!canUndo || isLoading}
+                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
+                    aria-label="Undo last action"
+                >
+                    <UndoIcon className="w-5 h-5 mr-2" />
+                    Undo
+                </button>
+                <span className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-900 border border-gray-700 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    Undo last action
+                </span>
+            </div>
+            <div className="relative group">
+                <button 
+                    onClick={handleRedo}
+                    disabled={!canRedo || isLoading}
+                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
+                    aria-label="Redo last action"
+                >
+                    <RedoIcon className="w-5 h-5 mr-2" />
+                    Redo
+                </button>
+                <span className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-900 border border-gray-700 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    Redo last action
+                </span>
+            </div>
             
             <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
 
             {canUndo && (
-              <button 
-                  onMouseDown={() => setIsComparing(true)}
-                  onMouseUp={() => setIsComparing(false)}
-                  onMouseLeave={() => setIsComparing(false)}
-                  onTouchStart={() => setIsComparing(true)}
-                  onTouchEnd={() => setIsComparing(false)}
-                  disabled={isLoading}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label="Press and hold to see original image"
-              >
-                  <EyeIcon className="w-5 h-5 mr-2" />
-                  Compare
-              </button>
+              <div className="relative group">
+                <button 
+                    onMouseDown={() => setIsComparing(true)}
+                    onMouseUp={() => setIsComparing(false)}
+                    onMouseLeave={() => setIsComparing(false)}
+                    onTouchStart={() => setIsComparing(true)}
+                    onTouchEnd={() => setIsComparing(false)}
+                    disabled={isLoading}
+                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Press and hold to see original image"
+                >
+                    <EyeIcon className="w-5 h-5 mr-2" />
+                    Compare
+                </button>
+                <span className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-900 border border-gray-700 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    Hold to see original
+                </span>
+              </div>
             )}
 
-            <button 
-                onClick={handleReset}
-                disabled={!canUndo || isLoading}
-                className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
-              >
-                Reset
-            </button>
-            <button 
-                onClick={handleUploadNew}
-                disabled={isLoading}
-                className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-                Upload New
-            </button>
+            <div className="relative group">
+                <button 
+                    onClick={handleReset}
+                    disabled={!canUndo || isLoading}
+                    className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
+                  >
+                    Reset
+                </button>
+                 <span className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-900 border border-gray-700 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    Revert all changes
+                </span>
+            </div>
+            <div className="relative group">
+                <button 
+                    onClick={handleUploadNew}
+                    disabled={isLoading}
+                    className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Upload New
+                </button>
+                <span className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-900 border border-gray-700 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    Start with a new image
+                </span>
+            </div>
 
-            <div ref={downloadButtonRef} className="relative flex-grow sm:flex-grow-0 ml-auto">
+            <div ref={downloadButtonRef} className="relative group flex-grow sm:flex-grow-0 ml-auto">
                 <button 
                     onClick={() => setIsDownloadPanelOpen(prev => !prev)}
                     disabled={isLoading}
@@ -703,6 +726,9 @@ const App: React.FC = () => {
                     Download
                     <ChevronDownIcon className={`w-5 h-5 ml-2 transition-transform ${isDownloadPanelOpen ? 'rotate-180' : ''}`} />
                 </button>
+                <span className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-900 border border-gray-700 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    Save or upscale image
+                </span>
                 {isDownloadPanelOpen && (
                     <DownloadPanel onDownloadCurrent={handleDownload} onUpscale={handleUpscale} />
                 )}

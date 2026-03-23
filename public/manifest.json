@@ -1,0 +1,21 @@
+{
+  "name": "Pixshop Photo Editor",
+  "short_name": "Pixshop",
+  "description": "Professional AI-powered photo editing.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090A0F",
+  "theme_color": "#090A0F",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/pixshop/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/pixshop/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
