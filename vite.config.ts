@@ -5,6 +5,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: 'www' // This tells Vite to output the build to the 'www' folder Capacitor expects
+    outDir: 'dist'
   }
 })

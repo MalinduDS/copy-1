@@ -4,7 +4,7 @@
 */
 
 import React, { useState, useEffect } from 'react';
-import type { DetectedObject as ApiDetectedObject, DetailLevel } from '../services/geminiService';
+import type { DetectedObject as ApiDetectedObject } from '../services/geminiService';
 import { BullseyeIcon } from './icons';
 
 export interface DetectedObject extends ApiDetectedObject {
@@ -15,7 +15,7 @@ interface ObjectPanelProps {
   objects: DetectedObject[];
   isLoading: boolean;
   isEditing: boolean;
-  onDetect: (detailLevel: DetailLevel) => void;
+  onDetect: () => void;
   selectedObjectId: string | null;
   hoveredObjectId: string | null;
   onSelectObject: (id: string) => void;
@@ -25,7 +25,6 @@ interface ObjectPanelProps {
 
 const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing, onDetect, selectedObjectId, hoveredObjectId, onSelectObject, onHoverObject, onGenerateEdit }) => {
   const [prompt, setPrompt] = useState('');
-  const [detailLevel, setDetailLevel] = useState<DetailLevel>('medium');
   
   const selectedObject = objects.find(o => o.id === selectedObjectId);
 
@@ -48,41 +47,14 @@ const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing
     );
   }
 
-  const detailLevels: { key: DetailLevel, label: string }[] = [
-    { key: 'low', label: 'Low' },
-    { key: 'medium', label: 'Medium' },
-    { key: 'high', label: 'High' },
-  ];
-
   if (objects.length === 0) {
     return (
       <div className="w-full bg-gray-900/20 border border-white/10 rounded-lg p-4 flex flex-col items-center gap-4 animate-fade-in backdrop-blur-xl">
         <BullseyeIcon className="w-12 h-12 text-blue-400" />
         <h3 className="text-lg font-semibold text-center text-gray-300">Find & Edit Specific Objects</h3>
         <p className="text-sm text-gray-400 text-center max-w-md">Let the AI identify objects in your photo. You can then select an object to perform a precise edit, like changing its color or removing it.</p>
-        
-        <div className="flex flex-col items-center gap-2 my-2">
-            <label className="text-sm font-medium text-gray-400">Detection Detail:</label>
-            <div className="flex items-center gap-2 p-1 bg-gray-900/50 rounded-lg">
-                {detailLevels.map(({ key, label }) => (
-                    <button
-                        key={key}
-                        onClick={() => setDetailLevel(key)}
-                        disabled={isLoading || isEditing}
-                        className={`px-4 py-2 rounded-md text-sm font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50 ${
-                            detailLevel === key 
-                            ? 'bg-blue-600 text-white shadow-md' 
-                            : 'bg-transparent hover:bg-white/10 text-gray-300'
-                        }`}
-                    >
-                        {label}
-                    </button>
-                ))}
-            </div>
-        </div>
-        
         <button
-          onClick={() => onDetect(detailLevel)}
+          onClick={onDetect}
           disabled={isLoading || isEditing}
           className="w-full max-w-xs mt-2 bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
         >
@@ -97,7 +69,7 @@ const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-300">Detected Objects</h3>
         <button 
-          onClick={() => onDetect(detailLevel)}
+          onClick={onDetect}
           className="text-sm text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
           disabled={isEditing}
         >
@@ -116,20 +88,11 @@ const ObjectPanel: React.FC<ObjectPanelProps> = ({ objects, isLoading, isEditing
                 onMouseLeave={() => onHoverObject(null)}
                 className={`w-full text-left p-3 rounded-md transition-all duration-200 border-2
                   ${selectedObjectId === obj.id ? 'bg-blue-500/20 border-blue-400' :
-                  hoveredObjectId === obj.id ? 'bg-white/10 border-white/20' :
+                  hoveredObjectId === obj.id ? 'bg-white/10 border-white/20 scale-[1.02]' :
                   'bg-white/5 border-transparent hover:bg-white/10'}`
                 }
               >
-                <div className="flex justify-between items-center">
-                    <span className="font-semibold text-gray-200 capitalize">{obj.label}</span>
-                    <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${
-                        obj.confidence > 0.85 ? 'bg-green-500/20 text-green-300' :
-                        obj.confidence > 0.7 ? 'bg-yellow-500/20 text-yellow-300' :
-                        'bg-red-500/20 text-red-300'
-                    }`}>
-                        {(obj.confidence * 100).toFixed(0)}%
-                    </span>
-                </div>
+                <span className="font-semibold text-gray-200 capitalize">{obj.label}</span>
               </button>
             </li>
           ))}
